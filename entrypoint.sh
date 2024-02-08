@@ -152,7 +152,8 @@ then
     echo ready to merge
 
     # merge PR
-    gh pr merge $PR_NUMBER --merge --delete-branch
+    # gh pr merge $PR_NUMBER --merge --delete-branch
+    echo "MOCK MERGE MESSAGE"
 
     exit 0 # pr merge can fail in case of data conflicts, but it is not fail of verification
 fi
