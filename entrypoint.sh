@@ -29,6 +29,16 @@ function cleanup {
     [[ -f "$GITHUB_EVENT_PATH" ]] && rm $GITHUB_EVENT_PATH
 }
 
+function arr2str {
+    # join array to string with delimeter
+    # example:
+    # arr=(1 2 3)
+    # arr2str , ${arr[@]} => 1,2,3
+    local IFS="$1"
+    shift
+    echo "$*";
+}
+
 trap cleanup EXIT
 
 if [ ${CMD} == 'UPLOAD' ]
@@ -102,7 +112,7 @@ then
     fi
 
     # validate modified files
-    MODIFIED=$(git diff --name-only origin/$ENVIRONMENT | grep ".json$")
+    MODIFIED=($(git diff --name-only origin/$ENVIRONMENT | grep ".json$"))
     if [ -z "$MODIFIED" ]
     then
         echo No symbol info files were modified
@@ -113,15 +123,15 @@ then
     fi
 
     # save new versions
-    for F in $MODIFIED; do cp "$F" "$F.new"; done
+    for F in "${MODIFIED[@]}"; do cp "$F" "$F.new"; done
 
     # save old versions
     git checkout -b old origin/$ENVIRONMENT
-    for F in $MODIFIED; do cp "$F" "$F.old"; done
+    for F in "${MODIFIED[@]}"; do cp "$F" "$F.old"; done
 
     # download inspect tool
     aws s3 cp "${S3_BUCKET_INSPECT}/inspect-github-${ENVIRONMENT}" ./inspect --no-progress && chmod +x ./inspect
-    echo inpsect info: $(./inspect version)
+    echo inspect info: $(./inspect version)
 
     # check files
     FAILED=false
@@ -133,16 +143,17 @@ then
         echo "No inspect args in repo"
     fi
 
-    for F in $MODIFIED
-    do
-        echo Checking "$F"
-        ./inspect symfile --old="$F.old" --new="$F.new" --log-file=stdout --report-file=report.txt --report-format=github $INSPECT_ARGS
-        ./inspect symfile diff --old="$F.old" --new="$F.new" --log-file=stdout
-        RESULT=$(grep -c FAIL report.txt)
-        echo "#### $F" >> full_report.txt
-        cat report.txt >> full_report.txt
-        [ "$RESULT" -ne 0 ] && FAILED=true
+    arraylength=${#MODIFIED[@]}
+    for ((i = 0; i < ${arraylength}; i++)); do
+        MODIFIED[i]=$(echo ${MODIFIED[$i]} | cut -f1 -d".")
     done
+
+    MODIFIED_STR=$(arr2str , ${MODIFIED[@]})
+    echo "Checking ${MODIFIED_STR} groups"
+    ./inspect symfile --groups="${MODIFIED_STR}" --log-file=stdout --report-file=full_report.txt --report-format=github $INSPECT_ARGS
+    ./inspect symfile diff --groups="${MODIFIED_STR}" --log-file=stdout
+    RESULT=$(grep -c FAIL full_report.txt)
+    [ "$RESULT" -ne 0 ] && FAILED=true
 
     FULL_REPORT=$(cat full_report.txt)
 
@@ -261,7 +272,7 @@ then
 
         # if symbol info is valid, the file will be replaced by normalized version
         # don't stop the script execution when normalization fails: pass wrong data to merge request to see problems there
-        if ./inspect symfile normalize --old "symbols/${FILE}" --new "symbols/${FILE}"
+        if ./inspect symfile normalize --groups="${GROUP}"
         then
 
             if [ ${CONVERT} == 1 ]
